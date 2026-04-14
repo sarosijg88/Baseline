@@ -1,0 +1,85 @@
+---
+- name: Normalize network listeners for Windows
+  ansible.builtin.set_fact:
+    normalized_process_port_map: "{{ baseline_raw.netmap.listeners | default([]) }}"
+  when: baseline_raw.platform == 'windows'
+
+- name: Normalize network destinations for Windows
+  ansible.builtin.set_fact:
+    normalized_process_destination_map: "{{ baseline_raw.netmap.destinations | default([]) }}"
+  when: baseline_raw.platform == 'windows'
+
+- name: Normalize network listeners for Unix (best effort parser)
+  ansible.builtin.set_fact:
+    normalized_process_port_map: "{{ (baseline_raw.netmap.listeners | default([])) | map('regex_replace', '\\s+', ' ') | list }}"
+  when: baseline_raw.platform == 'unix'
+
+- name: Normalize network destinations for Unix (best effort parser)
+  ansible.builtin.set_fact:
+    normalized_process_destination_map: "{{ (baseline_raw.netmap.destinations | default([])) | map('regex_replace', '\\s+', ' ') | list }}"
+  when: baseline_raw.platform == 'unix'
+
+- name: Build normalized baseline schema
+  ansible.builtin.set_fact:
+    normalized_baseline:
+      schema_version: "{{ baseline_schema_version }}"
+      server_identity:
+        hostname: "{{ baseline_raw.system.hostname | default(inventory_hostname) }}"
+        fqdn: "{{ baseline_raw.system.fqdn | default(inventory_hostname) }}"
+        domain: "{{ baseline_raw.system.domain | default('') }}"
+        ips: "{{ ansible_all_ipv4_addresses | default([]) }}"
+        platform: "{{ baseline_raw.platform }}"
+      metadata:
+        environment: "{{ hostvars[inventory_hostname].environment | default(baseline_metadata_defaults.environment) }}"
+        app: "{{ hostvars[inventory_hostname].app | default(baseline_metadata_defaults.app) }}"
+        owner: "{{ hostvars[inventory_hostname].owner | default(baseline_metadata_defaults.owner) }}"
+        datacenter: "{{ hostvars[inventory_hostname].datacenter | default(baseline_metadata_defaults.datacenter) }}"
+        support_group: "{{ hostvars[inventory_hostname].support_group | default(baseline_metadata_defaults.support_group) }}"
+        patch_group: "{{ hostvars[inventory_hostname].patch_group | default(baseline_metadata_defaults.patch_group) }}"
+      compute:
+        cpu_count: "{{ ansible_processor_vcpus | default(ansible_processor_count | default(0)) }}"
+        memory_mb: "{{ baseline_raw.system.total_memory_mb | default(ansible_memtotal_mb | default(0)) }}"
+        uptime_seconds: "{{ ansible_uptime_seconds | default(0) }}"
+      storage:
+        disks: "{{ ansible_devices | default({}) }}"
+        mounts: "{{ ansible_mounts | default([]) }}"
+      network:
+        listeners: "{{ normalized_process_port_map }}"
+        established: "{{ normalized_process_destination_map }}"
+      os_config:
+        os_name: "{{ baseline_raw.system.os_caption | default('unknown') }}"
+        os_version: "{{ baseline_raw.system.os_version | default('unknown') }}"
+        os_build: "{{ baseline_raw.system.os_build | default('unknown') }}"
+        kernel: "{{ ansible_kernel | default(baseline_raw.system.os_build | default('unknown')) }}"
+        firewall: "{{ baseline_raw.operations.firewall_profiles | default(baseline_raw.operations.firewall_status | default([])) }}"
+        winrm_status: "{{ baseline_raw.operations.winrm | default({}) }}"
+        ssh_summary: "{{ 'ssh service data in services list' if baseline_raw.platform == 'unix' else '' }}"
+      patch:
+        pending_reboot: "{{ baseline_raw.operations.pending_reboot | default(false) }}"
+        hotfix_summary: "{{ baseline_raw.operations.hotfix_summary | default([]) }}"
+        pending_updates: "{{ baseline_raw.operations.pending_updates | default(0) }}"
+      software:
+        installed: "{{ baseline_raw.operations.software | default([]) }}"
+      services:
+        running: "{{ baseline_raw.operations.services | default([]) }}"
+        scheduled: "{{ baseline_raw.operations.scheduled_tasks | default([]) }}"
+      security:
+        local_users: "{{ baseline_raw.operations.local_users | default([]) }}"
+        local_admins: "{{ baseline_raw.operations.local_admins | default([]) }}"
+      certificates:
+        summary: "{{ baseline_raw.operations.certificates | default([]) }}"
+      process_port_map: "{{ normalized_process_port_map }}"
+      process_destination_map: "{{ normalized_process_destination_map }}"
+      compliance:
+        status: "unknown"
+        risk_score: 0
+        compliance_score: 0
+        findings: []
+      drift:
+        has_drift: false
+        changes: []
+      collection_metadata:
+        run_id: "{{ baseline_run_id }}"
+        collected_at: "{{ baseline_raw.collected_at }}"
+        collector: "ansible"
+        unreachable: false

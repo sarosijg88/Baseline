@@ -1,0 +1,6 @@
+---
+- name: Compare current snapshot to previous and produce drift outputs
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - drift_checks

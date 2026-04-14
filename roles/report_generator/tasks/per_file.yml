@@ -1,0 +1,9 @@
+---
+- name: Skip aggregate or drift files
+  ansible.builtin.set_fact:
+    report_file_skip: "{{ (report_file.path | basename) in ['servers.json', 'drift_summary.json'] }}"
+
+- name: Append parsed host baseline
+  ansible.builtin.set_fact:
+    aggregate_servers: "{{ aggregate_servers + [lookup('file', report_file.path) | from_json] }}"
+  when: not report_file_skip

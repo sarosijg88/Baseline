@@ -1,0 +1,52 @@
+---
+- name: Baseline collection and normalization
+  hosts: all
+  gather_facts: true
+  vars:
+    baseline_collection_timestamp: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+  pre_tasks:
+    - name: Ensure run directories exist on controller
+      ansible.builtin.file:
+        path: "{{ baseline_current_root }}/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - json
+        - csv
+        - html
+      delegate_to: localhost
+      run_once: true
+
+    - name: Ensure history root exists on controller
+      ansible.builtin.file:
+        path: "{{ baseline_history_root }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      run_once: true
+
+  roles:
+    - role: windows_baseline
+      when: ansible_os_family == 'Windows'
+
+    - role: unix_baseline
+      when: ansible_os_family != 'Windows'
+
+    - role: common_normalize
+    - role: compliance_checks
+
+  post_tasks:
+    - name: Write per-host normalized JSON
+      ansible.builtin.copy:
+        content: "{{ normalized_baseline | to_nice_json }}"
+        dest: "{{ baseline_current_root }}/json/{{ inventory_hostname }}.json"
+        mode: "0644"
+      delegate_to: localhost
+
+    - name: Copy current run artifacts into history snapshot folder
+      ansible.builtin.copy:
+        src: "{{ baseline_current_root }}/json/{{ inventory_hostname }}.json"
+        dest: "{{ baseline_history_root }}/{{ baseline_run_id }}_{{ inventory_hostname }}.json"
+        mode: "0644"
+        remote_src: true
+      delegate_to: localhost

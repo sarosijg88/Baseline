@@ -1,0 +1,41 @@
+---
+- name: Ensure report output directories exist
+  ansible.builtin.file:
+    path: "{{ baseline_current_root }}/{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - json
+    - csv
+    - html
+
+- name: Discover normalized host JSON files
+  ansible.builtin.find:
+    paths: "{{ baseline_current_root }}/json"
+    patterns: "*.json"
+    file_type: file
+  register: report_json_files
+
+- name: Initialize aggregate server list
+  ansible.builtin.set_fact:
+    aggregate_servers: []
+
+- name: Read host files into aggregate list
+  ansible.builtin.include_tasks: per_file.yml
+  loop: "{{ report_json_files.files }}"
+  loop_control:
+    loop_var: report_file
+
+- name: Write aggregate servers.json
+  ansible.builtin.copy:
+    content: "{{ aggregate_servers | to_nice_json }}"
+    dest: "{{ baseline_current_root }}/json/servers.json"
+    mode: "0644"
+
+- name: Render dashboard and server details via Python helper
+  ansible.builtin.command:
+    cmd: >-
+      {{ report_python_executable }} {{ playbook_dir | dirname }}/scripts/render_reports.py
+      --input {{ baseline_current_root }}/json/servers.json
+      --output-root {{ baseline_current_root }}
+  changed_when: true

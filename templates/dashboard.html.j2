@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Baseline Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    input, select { margin-right: 8px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+  <h1>Server Baseline Dashboard</h1>
+  <p>Total servers: {{ servers | length }}</p>
+
+  <input type="text" id="hostnameFilter" placeholder="Filter hostname/fqdn/ip/domain/app/owner/support group">
+  <select id="osFilter">
+    <option value="">All OS</option>
+    {% for os in servers | map(attribute='os_config.os_name') | list | unique %}
+    <option value="{{ os }}">{{ os }}</option>
+    {% endfor %}
+  </select>
+
+  <table id="serversTable">
+    <thead>
+      <tr>
+        <th>Host</th><th>IP(s)</th><th>OS</th><th>Domain</th><th>Environment</th><th>App</th><th>Owner</th><th>Support Group</th><th>Patch Group</th><th>Compliance</th><th>Risk</th><th>Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in servers %}
+      <tr data-os="{{ s.os_config.os_name }}">
+        <td>{{ s.server_identity.hostname }}</td>
+        <td>{{ s.server_identity.ips | join(', ') }}</td>
+        <td>{{ s.os_config.os_name }} {{ s.os_config.os_version }}</td>
+        <td>{{ s.server_identity.domain }}</td>
+        <td>{{ s.metadata.environment }}</td>
+        <td>{{ s.metadata.app }}</td>
+        <td>{{ s.metadata.owner }}</td>
+        <td>{{ s.metadata.support_group }}</td>
+        <td>{{ s.metadata.patch_group }}</td>
+        <td>{{ s.compliance.status }} ({{ s.compliance.compliance_score }})</td>
+        <td>{{ s.compliance.risk_score }}</td>
+        <td><a href="server_{{ s.server_identity.hostname }}.html">open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    const hostFilter = document.getElementById('hostnameFilter');
+    const osFilter = document.getElementById('osFilter');
+    function applyFilters() {
+      const q = hostFilter.value.toLowerCase();
+      const os = osFilter.value;
+      document.querySelectorAll('#serversTable tbody tr').forEach((row) => {
+        const txt = row.innerText.toLowerCase();
+        const rowOs = row.getAttribute('data-os');
+        const visible = (!q || txt.includes(q)) && (!os || rowOs === os);
+        row.style.display = visible ? '' : 'none';
+      });
+    }
+    hostFilter.addEventListener('input', applyFilters);
+    osFilter.addEventListener('change', applyFilters);
+  </script>
+</body>
+</html>

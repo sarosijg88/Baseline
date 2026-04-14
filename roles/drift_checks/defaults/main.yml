@@ -1,0 +1,9 @@
+---
+drift_compare_fields:
+  - software
+  - services
+  - network
+  - security
+  - certificates
+  - patch
+drift_previous_run_id: ""

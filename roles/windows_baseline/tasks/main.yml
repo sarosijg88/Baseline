@@ -1,0 +1,109 @@
+---
+- name: Collect Windows OS and system details
+  ansible.windows.win_powershell:
+    script: |
+      $os = Get-CimInstance Win32_OperatingSystem
+      $cs = Get-CimInstance Win32_ComputerSystem
+      $bios = Get-CimInstance Win32_BIOS
+      $boot = ([Management.ManagementDateTimeConverter]::ToDateTime($os.LastBootUpTime)).ToUniversalTime().ToString("o")
+      [pscustomobject]@{
+        hostname = $env:COMPUTERNAME
+        fqdn = $cs.DNSHostName + "." + $cs.Domain
+        domain = $cs.Domain
+        os_caption = $os.Caption
+        os_version = $os.Version
+        os_build = $os.BuildNumber
+        boot_time_utc = $boot
+        total_memory_mb = [math]::Round($cs.TotalPhysicalMemory / 1MB, 2)
+        manufacturer = $cs.Manufacturer
+        model = $cs.Model
+        serial_number = $bios.SerialNumber
+      } | ConvertTo-Json -Depth 5
+  register: win_system_raw
+  failed_when: false
+
+- name: Collect Windows network and process connection maps
+  ansible.windows.win_powershell:
+    script: |
+      $listener = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object {
+          $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+          [pscustomobject]@{
+            process_name = $proc.ProcessName
+            pid = $_.OwningProcess
+            parent_pid = $null
+            service_name = $null
+            executable_path = $proc.Path
+            running_account = $null
+            local_ip = $_.LocalAddress
+            local_port = $_.LocalPort
+            protocol = "tcp"
+            state = $_.State.ToString()
+            approved_listener = $null
+          }
+        }
+      $dest = Get-NetTCPConnection -State Established -ErrorAction SilentlyContinue |
+        ForEach-Object {
+          $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
+          [pscustomobject]@{
+            process_name = $proc.ProcessName
+            pid = $_.OwningProcess
+            executable_path = $proc.Path
+            running_account = $null
+            source_ip = $_.LocalAddress
+            source_port = $_.LocalPort
+            destination_ip = $_.RemoteAddress
+            destination_hostname = $null
+            destination_port = $_.RemotePort
+            protocol = "tcp"
+            state = $_.State.ToString()
+            internal_external = $(if ($_.RemoteAddress -like "10.*" -or $_.RemoteAddress -like "192.168.*" -or $_.RemoteAddress -like "172.16.*") {"internal"} else {"external"})
+            approved_destination = $null
+          }
+        }
+      [pscustomobject]@{
+        listeners = $listener
+        destinations = $dest
+      } | ConvertTo-Json -Depth 8
+  register: win_netmap_raw
+  failed_when: false
+
+- name: Collect Windows software, services, security and operations data
+  ansible.windows.win_powershell:
+    script: |
+      $users = Get-LocalUser -ErrorAction SilentlyContinue | Select-Object Name,Enabled,LastLogon
+      $admins = Get-LocalGroupMember -Group "Administrators" -ErrorAction SilentlyContinue | Select-Object Name,ObjectClass,PrincipalSource
+      $services = Get-Service | Select-Object Name,DisplayName,Status,StartType
+      $scheduled = Get-ScheduledTask -ErrorAction SilentlyContinue | Select-Object TaskName,TaskPath,State
+      $hotfix = Get-HotFix -ErrorAction SilentlyContinue | Sort-Object InstalledOn -Descending | Select-Object -First 15
+      $firewall = Get-NetFirewallProfile -ErrorAction SilentlyContinue | Select-Object Name,Enabled,DefaultInboundAction,DefaultOutboundAction
+      $winrm = Get-Service -Name WinRM -ErrorAction SilentlyContinue | Select-Object Name,Status,StartType
+      $certs = Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+        Select-Object Subject,NotAfter,Issuer,Thumbprint
+      $software = Get-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\* -ErrorAction SilentlyContinue |
+        Where-Object { $_.DisplayName } |
+        Select-Object DisplayName,DisplayVersion,Publisher,InstallDate
+      $pendingReboot = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
+      [pscustomobject]@{
+        local_users = $users
+        local_admins = $admins
+        services = $services
+        scheduled_tasks = $scheduled
+        hotfix_summary = $hotfix
+        firewall_profiles = $firewall
+        winrm = $winrm
+        certificates = $certs
+        software = $software
+        pending_reboot = $pendingReboot
+      } | ConvertTo-Json -Depth 10
+  register: win_ops_raw
+  failed_when: false
+
+- name: Set Windows baseline raw payload fact
+  ansible.builtin.set_fact:
+    baseline_raw:
+      platform: windows
+      collected_at: "{{ baseline_collection_timestamp }}"
+      system: "{{ win_system_raw.output[0] | default('{}') | from_json }}"
+      netmap: "{{ win_netmap_raw.output[0] | default('{\"listeners\":[],\"destinations\":[]}') | from_json }}"
+      operations: "{{ win_ops_raw.output[0] | default('{}') | from_json }}"

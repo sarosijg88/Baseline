@@ -1,0 +1,2 @@
+---
+unix_pkg_query_cmd: "(dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null || rpm -qa 2>/dev/null || true)"

@@ -1,0 +1,75 @@
+---
+- name: Initialize compliance findings
+  ansible.builtin.set_fact:
+    compliance_findings: []
+    risk_score: 0
+    compliance_score: 100
+
+- name: Check patch age based on latest hotfix when available
+  ansible.builtin.set_fact:
+    compliance_findings: "{{ compliance_findings + [ {'id': 'patch_age', 'status': 'partially_compliant', 'detail': 'Patch validation requires org-specific date parsing rules.'} ] }}"
+    risk_score: "{{ risk_score + 10 }}"
+    compliance_score: "{{ compliance_score - 10 }}"
+  when: normalized_baseline.patch.hotfix_summary | length == 0
+
+- name: Check pending reboot risk
+  ansible.builtin.set_fact:
+    compliance_findings: "{{ compliance_findings + [ {'id': 'pending_reboot', 'status': 'non_compliant', 'detail': 'Pending reboot detected.'} ] }}"
+    risk_score: "{{ risk_score + 20 }}"
+    compliance_score: "{{ compliance_score - 20 }}"
+  when: normalized_baseline.patch.pending_reboot | bool
+
+- name: Check local admins deviation
+  ansible.builtin.set_fact:
+    compliance_findings: "{{ compliance_findings + [ {'id': 'local_admin_deviation', 'status': 'partially_compliant', 'detail': 'Local admin count exceeds policy.'} ] }}"
+    risk_score: "{{ risk_score + 15 }}"
+    compliance_score: "{{ compliance_score - 15 }}"
+  when: (normalized_baseline.security.local_admins | length) > compliance_policy.max_local_admins
+
+- name: Check unsupported OS patterns
+  ansible.builtin.set_fact:
+    compliance_findings: "{{ compliance_findings + [ {'id': 'unsupported_os', 'status': 'non_compliant', 'detail': 'OS matches unsupported policy pattern.'} ] }}"
+    risk_score: "{{ risk_score + 25 }}"
+    compliance_score: "{{ compliance_score - 25 }}"
+  when: compliance_policy.unsupported_os_patterns | select('search', normalized_baseline.os_config.os_name) | list | length > 0
+
+- name: Identify missing required agents by signature
+  ansible.builtin.set_fact:
+    compliance_findings: "{{ compliance_findings + [ {'id': 'missing_agents', 'status': 'partially_compliant', 'detail': 'One or more required agent signatures not detected. Customize signatures for your environment.'} ] }}"
+    risk_score: "{{ risk_score + 20 }}"
+    compliance_score: "{{ compliance_score - 20 }}"
+  vars:
+    sw_blob: "{{ (normalized_baseline.software.installed | string | lower) }}"
+    svc_blob: "{{ (normalized_baseline.services.running | string | lower) }}"
+    found_agents: >-
+      {{
+        {
+          'monitoring': (agent_detection_signatures.monitoring | select('in', sw_blob + ' ' + svc_blob) | list | length > 0),
+          'backup': (agent_detection_signatures.backup | select('in', sw_blob + ' ' + svc_blob) | list | length > 0),
+          'security': (agent_detection_signatures.security | select('in', sw_blob + ' ' + svc_blob) | list | length > 0)
+        }
+      }}
+  when: not (found_agents.monitoring and found_agents.backup and found_agents.security)
+
+- name: Finalize compliance status and scores
+  ansible.builtin.set_fact:
+    normalized_baseline: >-
+      {{
+        normalized_baseline | combine(
+          {
+            'compliance': {
+              'status': (
+                'compliant' if (compliance_findings | length == 0)
+                else (
+                  'non_compliant' if (compliance_findings | selectattr('status', 'equalto', 'non_compliant') | list | length > 0)
+                  else 'partially_compliant'
+                )
+              ),
+              'risk_score': (risk_score | int),
+              'compliance_score': ([0, (compliance_score | int)] | max),
+              'findings': compliance_findings
+            }
+          },
+          recursive=True
+        )
+      }}

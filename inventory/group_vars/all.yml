@@ -1,0 +1,50 @@
+---
+# Global run identity (override in scheduler if needed)
+baseline_run_id: "{{ lookup('pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+
+# Output roots
+baseline_output_root: "{{ playbook_dir | dirname }}/output"
+baseline_current_root: "{{ baseline_output_root }}/current/{{ baseline_run_id }}"
+baseline_history_root: "{{ baseline_output_root }}/history"
+
+# Ownership/metadata placeholders (customize for your org)
+baseline_metadata_defaults:
+  environment: "placeholder_environment"
+  app: "placeholder_app"
+  owner: "placeholder_owner"
+  datacenter: "placeholder_datacenter"
+  support_group: "placeholder_support_group"
+  patch_group: "placeholder_patch_group"
+
+# Compliance and risk policy (configurable)
+compliance_policy:
+  patch_max_age_days: 45
+  cert_expiry_warn_days: 30
+  cert_expiry_critical_days: 14
+  max_local_admins: 5
+  require_agents:
+    - "monitoring"
+    - "security"
+    - "backup"
+  unsupported_os_patterns:
+    - "Windows Server 2008"
+    - "CentOS 6"
+    - "RHEL 5"
+
+# Placeholder allow-lists (customize)
+approved_listeners: []
+approved_destinations: []
+
+# Agent signatures (process/package/service names)
+agent_detection_signatures:
+  monitoring:
+    - "datadog"
+    - "splunk"
+    - "newrelic"
+  backup:
+    - "veeam"
+    - "netbackup"
+  security:
+    - "crowdstrike"
+    - "defender"
+    - "carbonblack"

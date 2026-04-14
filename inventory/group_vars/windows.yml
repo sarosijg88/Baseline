@@ -1,0 +1,9 @@
+---
+ansible_connection: winrm
+ansible_winrm_transport: ntlm
+ansible_port: 5985
+ansible_winrm_server_cert_validation: ignore
+
+# Example only: move to vault/credential manager in production
+ansible_user: "PLACEHOLDER\\ansible_svc"
+ansible_password: "CHANGEME"

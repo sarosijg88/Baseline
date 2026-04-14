@@ -1,0 +1,6 @@
+---
+- name: Build aggregate reports and dashboard
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - report_generator

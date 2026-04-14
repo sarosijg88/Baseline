@@ -1,0 +1,87 @@
+---
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Collect local users
+  ansible.builtin.getent:
+    database: passwd
+  failed_when: false
+
+- name: Collect installed packages (best effort)
+  ansible.builtin.shell: "{{ unix_pkg_query_cmd }}"
+  register: unix_packages_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect listening sockets
+  ansible.builtin.shell: "ss -lntupH 2>/dev/null || netstat -lntup 2>/dev/null || true"
+  register: unix_listen_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect established sockets
+  ansible.builtin.shell: "ss -ntupH state established 2>/dev/null || netstat -ntup 2>/dev/null || true"
+  register: unix_established_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect cron summary
+  ansible.builtin.shell: "(ls -1 /etc/cron.d 2>/dev/null; crontab -l 2>/dev/null) || true"
+  register: unix_cron_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect firewall summary
+  ansible.builtin.shell: "(ufw status 2>/dev/null || firewall-cmd --state 2>/dev/null || iptables -S 2>/dev/null) || true"
+  register: unix_firewall_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect pending updates count
+  ansible.builtin.shell: "(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l) || (yum check-update -q 2>/dev/null | wc -l) || echo 0"
+  register: unix_pending_updates_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect cert summary (best effort)
+  ansible.builtin.shell: "find /etc/ssl /etc/pki -type f \( -name '*.crt' -o -name '*.pem' \) 2>/dev/null | head -n 200"
+  register: unix_certs_raw
+  changed_when: false
+  failed_when: false
+
+- name: Collect process list for agent detection
+  ansible.builtin.shell: "ps -eo pid,ppid,user,comm,args --no-headers"
+  register: unix_ps_raw
+  changed_when: false
+  failed_when: false
+
+- name: Build Unix raw baseline fact
+  ansible.builtin.set_fact:
+    baseline_raw:
+      platform: unix
+      collected_at: "{{ baseline_collection_timestamp }}"
+      system:
+        hostname: "{{ ansible_facts.hostname | default(inventory_hostname) }}"
+        fqdn: "{{ ansible_facts.fqdn | default(ansible_facts.hostname | default(inventory_hostname)) }}"
+        domain: "{{ (ansible_facts.fqdn | default('')).split('.', 1)[1] if (ansible_facts.fqdn | default('')) and '.' in (ansible_facts.fqdn | default('')) else '' }}"
+        os_caption: "{{ ansible_facts.distribution | default('unknown') }} {{ ansible_facts.distribution_version | default('') }}"
+        os_version: "{{ ansible_facts.distribution_version | default('unknown') }}"
+        os_build: "{{ ansible_facts.kernel | default('unknown') }}"
+        boot_time_utc: "{{ ansible_facts.date_time.iso8601 | default('') }}"
+        total_memory_mb: "{{ ansible_facts.memtotal_mb | default(0) }}"
+        manufacturer: "{{ ansible_facts.system_vendor | default('') }}"
+        model: "{{ ansible_facts.product_name | default('') }}"
+        serial_number: "{{ ansible_facts.product_serial | default('') }}"
+      operations:
+        local_users: "{{ (ansible_facts.getent_passwd | default({})).keys() | list }}"
+        local_admins: "{{ (ansible_facts.getent_group.sudo[2].split(',') if (ansible_facts.getent_group is defined and ansible_facts.getent_group.sudo is defined and (ansible_facts.getent_group.sudo | length) > 2) else []) }}"
+        services: "{{ ansible_facts.services | default({}) | dict2items }}"
+        software: "{{ unix_packages_raw.stdout_lines | default([]) }}"
+        pending_updates: "{{ (unix_pending_updates_raw.stdout | trim | int(0)) }}"
+        firewall_status: "{{ unix_firewall_raw.stdout_lines | default([]) }}"
+        scheduled_tasks: "{{ unix_cron_raw.stdout_lines | default([]) }}"
+        certificates: "{{ unix_certs_raw.stdout_lines | default([]) }}"
+      netmap:
+        listeners: "{{ unix_listen_raw.stdout_lines | default([]) }}"
+        destinations: "{{ unix_established_raw.stdout_lines | default([]) }}"
+      process_list: "{{ unix_ps_raw.stdout_lines | default([]) }}"

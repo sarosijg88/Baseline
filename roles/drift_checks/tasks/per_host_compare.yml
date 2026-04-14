@@ -1,0 +1,44 @@
+---
+- name: Load current host baseline
+  ansible.builtin.set_fact:
+    drift_current: "{{ lookup('file', current_file.path) | from_json }}"
+
+- name: Derive current hostname
+  ansible.builtin.set_fact:
+    drift_host: "{{ drift_current.server_identity.hostname | default((current_file.path | basename).split('.')[0]) }}"
+
+- name: Locate previous file for host
+  ansible.builtin.set_fact:
+    drift_prev_path: "{{ baseline_history_root }}/{{ effective_prev_run_id }}_{{ drift_host }}.json"
+
+- name: Check previous file exists
+  ansible.builtin.stat:
+    path: "{{ drift_prev_path }}"
+  register: drift_prev_stat
+
+- name: Load previous baseline
+  ansible.builtin.set_fact:
+    drift_previous: "{{ lookup('file', drift_prev_path) | from_json }}"
+  when: drift_prev_stat.stat.exists
+
+- name: Build drift change set
+  ansible.builtin.set_fact:
+    drift_change_item:
+      hostname: "{{ drift_host }}"
+      previous_run: "{{ effective_prev_run_id | default('none') }}"
+      current_run: "{{ baseline_run_id }}"
+      comparable: "{{ drift_prev_stat.stat.exists }}"
+      changes:
+        software_changed: "{{ drift_prev_stat.stat.exists and (drift_current.software != drift_previous.software) }}"
+        services_changed: "{{ drift_prev_stat.stat.exists and (drift_current.services != drift_previous.services) }}"
+        listeners_changed: "{{ drift_prev_stat.stat.exists and (drift_current.process_port_map != drift_previous.process_port_map) }}"
+        destinations_changed: "{{ drift_prev_stat.stat.exists and (drift_current.process_destination_map != drift_previous.process_destination_map) }}"
+        admins_changed: "{{ drift_prev_stat.stat.exists and (drift_current.security.local_admins != drift_previous.security.local_admins) }}"
+        certs_changed: "{{ drift_prev_stat.stat.exists and (drift_current.certificates != drift_previous.certificates) }}"
+        ips_changed: "{{ drift_prev_stat.stat.exists and (drift_current.server_identity.ips != drift_previous.server_identity.ips) }}"
+        patch_changed: "{{ drift_prev_stat.stat.exists and (drift_current.patch != drift_previous.patch) }}"
+        disk_changed: "{{ drift_prev_stat.stat.exists and (drift_current.storage.mounts != drift_previous.storage.mounts) }}"
+
+- name: Accumulate drift results
+  ansible.builtin.set_fact:
+    drift_results: "{{ (drift_results | default([])) + [drift_change_item] }}"

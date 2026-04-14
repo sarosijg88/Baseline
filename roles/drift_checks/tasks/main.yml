@@ -1,0 +1,43 @@
+---
+- name: Discover current host JSON files
+  ansible.builtin.find:
+    paths: "{{ baseline_current_root }}/json"
+    patterns: "*.json"
+    file_type: file
+  register: drift_current_files
+
+- name: Determine previous run from history when not provided
+  ansible.builtin.shell: |
+    set -o pipefail
+    ls -1 {{ baseline_history_root }}/*.json 2>/dev/null | sed -E 's#.*/([0-9TZ]+)_.*#\1#' | sort -u | tail -n 1
+  args:
+    executable: /bin/bash
+  register: detected_prev_run
+  changed_when: false
+  failed_when: false
+
+- name: Set effective previous run id
+  ansible.builtin.set_fact:
+    effective_prev_run_id: "{{ drift_previous_run_id if drift_previous_run_id | length > 0 else (detected_prev_run.stdout | trim) }}"
+
+- name: Compare each current host with previous history
+  ansible.builtin.include_tasks: per_host_compare.yml
+  loop: "{{ drift_current_files.files }}"
+  loop_control:
+    loop_var: current_file
+
+- name: Write aggregate drift report json
+  ansible.builtin.copy:
+    content: "{{ drift_results | default([]) | to_nice_json }}"
+    dest: "{{ baseline_current_root }}/json/drift_summary.json"
+    mode: "0644"
+
+- name: Render compare HTML report
+  ansible.builtin.template:
+    src: "{{ playbook_dir | dirname }}/templates/compare.html.j2"
+    dest: "{{ baseline_current_root }}/html/compare.html"
+    mode: "0644"
+  vars:
+    compare_run_id: "{{ baseline_run_id }}"
+    compare_prev_run_id: "{{ effective_prev_run_id | default('none') }}"
+    compare_items: "{{ drift_results | default([]) }}"
